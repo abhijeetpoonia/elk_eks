@@ -26,3 +26,20 @@ spec:
         env:
         - name: discovery.type
           value: single-node
+        - name: network.host
+          value: "0.0.0.0"
+        - name: http.host
+          value: "0.0.0.0"
+        - name: transport.host
+          value: "0.0.0.0"
+        - name: xpack.security.enabled
+          value: "false"
+        - name: ES_JAVA_OPTS
+          value: "-Xms1g -Xmx1g"
+        ports:
+        - containerPort: 9200
+          name: http
+          protocol: TCP
+        - containerPort: 9300
+          name: transport
+          protocol: TCP
