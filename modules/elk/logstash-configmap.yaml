@@ -8,11 +8,86 @@ data:
     input {
       beats {
         port => 5044
+        host => "0.0.0.0"
+        client_inactivity_timeout => 60
       }
     }
+    
+    filter {
+      # Parse JSON if message is in JSON format
+      if [message] =~ /^\{.*\}$/ {
+        json {
+          source => "message"
+          skip_on_invalid_json => true
+        }
+      }
+      
+      # Enhanced service type detection
+      if [kubernetes] and [kubernetes][container] and [kubernetes][container][name] {
+        if [kubernetes][container][name] =~ /nginx/ {
+          mutate {
+            add_field => { "service_type" => "web-server" }
+            add_field => { "log_type" => "nginx" }
+            add_field => { "service_name" => "nginx" }
+          }
+        }
+        else if [kubernetes][container][name] =~ /apache/ {
+          mutate {
+            add_field => { "service_type" => "web-server" }
+            add_field => { "log_type" => "apache" }
+            add_field => { "service_name" => "apache" }
+          }
+        }
+        else if [kubernetes][container][name] =~ /redis/ {
+          mutate {
+            add_field => { "service_type" => "database" }
+            add_field => { "log_type" => "redis" }
+            add_field => { "service_name" => "redis" }
+          }
+        }
+      }
+      
+      # Add environment and cluster info from Filebeat
+      if [service] and [service][environment] {
+        mutate {
+          add_field => { "environment" => "%{[service][environment]}" }
+        }
+      }
+      
+      if [service] and [service][cluster] {
+        mutate {
+          add_field => { "cluster_name" => "%{[service][cluster]}" }
+        }
+      }
+      
+      # Extract basic Kubernetes metadata
+      if [kubernetes][pod][name] {
+        mutate {
+          add_field => { "pod_name" => "%{[kubernetes][pod][name]}" }
+        }
+      }
+      
+      if [kubernetes][namespace] {
+        mutate {
+          add_field => { "k8s_namespace" => "%{[kubernetes][namespace]}" }
+        }
+      }
+      
+      # Clean up and add processing metadata
+      mutate {
+        add_field => { "processed_by" => "logstash" }
+        add_field => { "pipeline_stage" => "logstash" }
+      }
+    }
+    
     output {
       elasticsearch {
-        hosts => ["elasticsearch:9200"]
-        index => "%{[@metadata][beat]}-%{[@metadata][version]}-%{+YYYY.MM.dd}"
+        hosts => ["elasticsearch-service.elk.svc.cluster.local:9200"]
+        index => "kubernetes-logs-%{+YYYY.MM.dd}"
+        document_type => "_doc"
+      }
+
+      stdout {
+        codec => rubydebug
       }
     }
