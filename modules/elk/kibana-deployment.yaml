@@ -1,8 +1,11 @@
+# kibana-deployment.yaml (CORRECTED)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kibana
   namespace: elk
+  labels:
+    app: kibana
 spec:
   replicas: 1
   selector:
@@ -20,4 +23,27 @@ spec:
         - containerPort: 5601
         env:
         - name: ELASTICSEARCH_HOSTS
-          value: "http://13.202.91.144:30001"
+          value: "http://elasticsearch-service:9200"
+        - name: SERVER_NAME
+          value: "kibana"
+        - name: SERVER_HOST
+          value: "0.0.0.0"
+        resources:
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+        readinessProbe:
+          httpGet:
+            path: /api/status
+            port: 5601
+          initialDelaySeconds: 30
+          timeoutSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /api/status
+            port: 5601
+          initialDelaySeconds: 60
+          timeoutSeconds: 10
