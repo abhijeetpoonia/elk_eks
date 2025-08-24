@@ -1,3 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elasticsearch
+  namespace: elk
+  labels:
+    app: elasticsearch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+    spec:
+      containers:
+      - name: elasticsearch
+        image: docker.elastic.co/elasticsearch/elasticsearch:7.10.0
+        ports:
+        - containerPort: 9200
+        - containerPort: 9300
+        env:
+        - name: discovery.type
+          value: "single-node"
+        - name: ES_JAVA_OPTS
+          value: "-Xms512m -Xmx512m"
+        - name: xpack.security.enabled
+          value: "false"
+        - name: xpack.monitoring.collection.enabled
+root@ip-172-31-35-4:/home/ubuntu# cat filebeat-cluster-role.yaml 
+root@ip-172-31-35-4:/home/ubuntu# cat filebeat-configmap.yaml 
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -8,14 +41,58 @@ data:
     filebeat.inputs:
     - type: container
       paths:
-        - /var/log/containers/*.log
+        # Updated paths to match your actual deployment names
+        - /var/log/containers/*nginx-deployment*.log
+        - /var/log/containers/*apache-deployment*.log
+        - /var/log/containers/*redis-deployment*.log
+        # Also try pods directory for containerd
+        - /var/log/pods/default_nginx-deployment*/*/*.log
+        - /var/log/pods/default_apache-deployment*/*/*.log
+        - /var/log/pods/default_redis-deployment*/*/*.log
+      # Exclude Filebeat's own logs to prevent loops
+      exclude_lines: ['.*filebeat.*']
+      multiline.pattern: '^\d{4}-\d{2}-\d{2}'
+      multiline.negate: true
+      multiline.match: after
+      processors:
+        - add_kubernetes_metadata:
+            host: ${NODE_NAME}
+            matchers:
+            - logs_path:
+                logs_path: "/var/log/containers/"
+        - decode_json_fields:
+            fields: ["message"]
+            target: ""
+            overwrite_keys: true
+            add_error_key: true
     
     processors:
-      - add_kubernetes_metadata:
-          host: ${NODE_NAME}
-          matchers:
-          - logs_path:
-              logs_path: "/var/log/containers/"
-
+      - add_fields:
+          target: service
+          fields:
+            environment: "development"
+            cluster: "eks-cluster"
+      - add_host_metadata:
+          when.not.contains.tags: forwarded
+      - drop_fields:
+          fields: ["agent.ephemeral_id", "agent.id", "ecs.version", "host.id"]
+    
     output.logstash:
-      hosts: ["logstash:5044"]
+      hosts: ["logstash-service.elk.svc.cluster.local:5044"]
+      worker: 1
+      compression_level: 3
+      bulk_max_size: 1024
+      timeout: 30s
+      max_retries: 3
+      backoff.init: 1s
+      backoff.max: 60s
+      loadbalance: true
+    
+    logging.level: info
+    logging.to_files: false
+    logging.json: true
+    
+    monitoring.enabled: false
+    
+    # Add registry file to track file positions
+    filebeat.registry.path: /usr/share/filebeat/data/registry
